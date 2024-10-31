@@ -174,35 +174,34 @@ local typeOrder = {
     ["thread"] = 6,
 }
 
----Convert value to a pretty string.
+---@param item string[]
+---@param leadingSpaceLength integer
+---@param trimSpaceLength integer
+---@return string|nil
+local function maybeShortTable(item, leadingSpaceLength, trimSpaceLength)
+    local arr = {} ---@type string[]
+    local size = 4 + leadingSpaceLength ---@type integer
+    for _, str in ipairs(item) do
+        local s = string.sub(str, trimSpaceLength + 1)
+        size = size + #s + 1
+        table.insert(arr, s)
+        if size >= lineBreakLimit then return nil end
+    end
+    if arr[1] == nil then
+        return "{ }"
+    end
+    return "{ " .. table.concat(arr, " ") .. " }"
+end
+
 ---@param value any
----@return string
-local function write(value)
+---@return string|string[]
+local function writeInternal(value)
     if type(value) ~= "table" then
         return writeDirect(value)
     end
 
     local tableVisit = {} ---@type table<table, boolean>
     local integerSet = {} ---@type table<integer, boolean>
-
-    ---@param item string[]
-    ---@param leadingSpaceLength integer
-    ---@param trimSpaceLength integer
-    ---@return string|nil
-    local function maybeShortTable(item, leadingSpaceLength, trimSpaceLength)
-        local arr = {} ---@type string[]
-        local size = 4 + leadingSpaceLength ---@type integer
-        for _, str in ipairs(item) do
-            local s = string.sub(str, trimSpaceLength + 1)
-            size = size + #s + 1
-            table.insert(arr, s)
-            if size >= lineBreakLimit then return nil end
-        end
-        if arr[1] == nil then
-            return "{ }"
-        end
-        return "{ " .. table.concat(arr, " ") .. " }"
-    end
 
     ---@param leadingSpace string
     ---@return string|string[]
@@ -306,6 +305,33 @@ local function write(value)
     return s or string.format("{\n%s\n}", table.concat(ret, "\n"))
 end
 
+local function printOne(value)
+    local ret = writeInternal(value)
+    if type(ret) == "string" then
+        io.write(ret)
+        return
+    end
+    local s = maybeShortTable(ret, 0, indentWidth)
+    if s ~= nil then io.write(s) end
+    io.write("{\n")
+    for _, v in ipairs(ret) do
+        io.write(v)
+        io.write('\n')
+    end
+    io.write("\n}")
+end
+
+
+---Convert value to a pretty string.
+---@param value any
+---@return string
+local function write(value)
+    local ret = writeInternal(value)
+    if type(ret) == "string" then return ret end
+    local s = maybeShortTable(ret, 0, indentWidth)
+    return s or string.format("{\n%s\n}", table.concat(ret, "\n"))
+end
+
 ---Set the line break limit.
 ---Note: this limit can only control the line breaks of tables,
 ---  it cannot absolutely control the maximum length of each line.
@@ -328,7 +354,7 @@ local function setIndentWidth(width)
     indentString = string.rep(" ", width)
 end
 
----Set the maximum number of consecutive nil values allowed in an array; 
+---Set the maximum number of consecutive nil values allowed in an array;
 ---values exceeding this limit will be considered as part of the table.
 ---@param num integer
 local function setMaximumNilNumberAllowed(num)
@@ -344,8 +370,9 @@ local function prettyPrint(...)
     local data = { ... }
     for i = 1, #data do
         if i > 1 then io.write("\t") end
-        io.write(write(data[i]))
+        printOne(data[i])
     end
+    io.write("\n")
 end
 
 local M = {
