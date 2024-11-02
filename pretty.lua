@@ -322,7 +322,7 @@ local function writeInternal(value, option)
         if line[2] ~= nil then
             line[#line] = nil
             table.insert(ret, table.concat(line))
-        else
+        elseif #ret ~= 0 then
             ret[#ret] = string.sub(ret[#ret], -2)
         end
         tableVisit[tab] = nil
