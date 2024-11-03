@@ -484,11 +484,13 @@ local function setMaximumNilNumberAllowed(num) updateOption({ maximumNilNumberAl
 local function makePrinter(option)
     local mergedOption = mergeOption(option)
     return function(...)
-        local data = { ... }
-        printOne(data[1], mergedOption)
-        for i = 2, #data do
-            io.write("\t")
-            printOne(data[i], mergedOption)
+        local data, dataLen = { ... }, select("#", ...)
+        if dataLen >= 1 then
+            printOne(data[1], mergedOption)
+            for i = 2, dataLen do
+                io.write("\t")
+                printOne(data[i], mergedOption)
+            end
         end
         io.write("\n")
     end
@@ -498,11 +500,13 @@ end
 ---@param ... any
 ---@return nil
 local function prettyPrint(...)
-    local data = { ... }
-    printOne(data[1], globalPrettyOption)
-    for i = 2, #data do
-        io.write("\t")
-        printOne(data[i], globalPrettyOption)
+    local data, dataLen = { ... }, select("#", ...)
+    if dataLen >= 1 then
+        printOne(data[1], globalPrettyOption)
+        for i = 2, dataLen do
+            io.write("\t")
+            printOne(data[i], globalPrettyOption)
+        end
     end
     io.write("\n")
 end
