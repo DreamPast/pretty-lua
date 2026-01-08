@@ -61,7 +61,7 @@ print(write("ABC\x01"))
 -- output: "ABC\x01"
 
 print(write(function() end))
--- example output: <function 000001F6B5888A20>
+-- example output: <function: 000002e4c0670d00>
 ```
 
 array:
@@ -114,7 +114,7 @@ print(write({
 }))
 --[[output:
 {
-  ["a"] = 1, ["b"] = true, ["c"] = <function: 000001E2AF53CAF0>,
+  ["a"] = 1, ["b"] = true, ["c"] = <function: 000002e4c06705e0>,
   ["d"] = { 1, 2 }, ["e"] = {
     1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009,
     1010, 1011
@@ -129,7 +129,7 @@ do
     print(write(t))
 end
 --[[output:
-{ { 12, 13, <cycle table: 000001FBF3F9F780> } }
+{ { 12, 13, <cycle table: 000002e4c06560d0> } }
 ]]
 
 do

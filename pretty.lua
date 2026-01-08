@@ -1,3 +1,7 @@
+--[[
+-- Lua5.5
+global string, _VERSION, error, tonumber, tostring, math, pairs, table, type, ipairs, io, select, setmetatable
+]] ---
 ---Check if the value is an integer.
 ---For Lua versions before 5.3, an integer is a number without a fractional part;
 ---for Lua 5.3 and later, use the built-in function `math.type` to determine.
@@ -8,17 +12,14 @@ do
     if majorVersion == nil or minorVersion == nil then error("unknown lua version") end
     if majorVersion ~= "5" then error("unsupported lua version") end
     if tonumber(minorVersion) < 3 then
-        isInteger = function(value) return math.floor(value) == value end
+        isInteger = function(value)
+            if value == 0 then return string.sub(tostring(value), 1, 2) ~= "-0" end -- (-0)
+            if value * 0.5 == value then return false end -- inf
+            return math.floor(value) == value
+        end
     else
         isInteger = function(value) return math.type(value) == "integer" end
     end
-end
-
----@param value number
-local function checkUsingIntegerFormatter(value)
-    if value == 0 then return string.sub(tostring(value), 1, 2) ~= "-0" end
-    if value ~= value and value * 0.5 == value then return false end
-    return isInteger(value)
 end
 
 ---The largest integer that can be represented without loss of precision.
@@ -30,17 +31,12 @@ local maxSafeInteger = (function()
     if 1 / 2 == 0 then -- no floating point number
         val = math.huge
         if val - 1 == val then
-            error(
-                "It seems there's no floating-point number, but `math.huge` is not likely to be a valid integer")
+            error("It seems there's no floating-point number, but `math.huge` is not likely to be a valid integer")
         end
         return val
     end
 
-    local function testFloat(val)
-        if val - 2 == val or val - 1 == val then return false end
-        if val - 2 == val - 1 then return false end
-        return true
-    end
+    local function testFloat(val) return val - 2 ~= val and val - 1 ~= val and val - 2 ~= val - 1 end
 
     val = 2.0 ^ 113
     if testFloat(val) then return val end -- IEEE-754 binary128
@@ -54,6 +50,7 @@ local maxSafeInteger = (function()
     if testFloat(val) then return val end -- IEEE-754 binary16
     val = 2.0 ^ 8
     if testFloat(val) then return val end -- bfloat16
+    error("cannot determine the maximum safe integer for this platform")
 end)()
 
 ---@generic T
@@ -64,16 +61,9 @@ local function copyTable(value)
     return ret
 end
 
-
 ---Convert a number to a string.
 ---@type fun(value:number):string
-local function num2string(value)
-    if checkUsingIntegerFormatter(value) then
-        return ("%d"):format(value)
-    else
-        return ("%.14g"):format(value)
-    end
-end
+local function num2string(value) return string.format(isInteger(value) and "%d" or "%.14g", value) end
 
 ---@type table<integer, string>
 local stringQuoteTable = {}
@@ -89,14 +79,10 @@ do
     stringQuoteTable[9] = "\\t"
     stringQuoteTable[11] = "\\v"
     stringQuoteTable[92] = "\\\\"
-    for i = 32, 126 do
-        if stringQuoteTable[i] == nil then
-            stringQuoteTable[i] = string.char(i)
-        end
-    end
     for i = 1, 255 do
         if stringQuoteTable[i] == nil then
-            stringQuoteTable[i] = string.format("\\x%02x", i)
+            local c = string.char(i)
+            stringQuoteTable[i] = string.find(c, '[%g]') and string.char(i) or string.format("\\x%02X", i)
         end
     end
 end
@@ -105,35 +91,46 @@ end
 ---@param quote string|nil The quote string; no quotes will be added if `quote` == `nil`
 ---@return string
 local function escapeString(str, quote)
-    local pattern = "[\x7F-\xFF\1-\x1F\\\"\'=\20]"
-    if string.find(str, pattern) == nil then
-        return str
-    end
-
     local pos = 0
-    local retTable = {}
-    if quote ~= nil then table.insert(retTable, quote) end
+    local ret = {}
+    if quote ~= nil then table.insert(ret, quote) end
     repeat
-        local nextPos = string.find(str, pattern, pos)
+        local nextPos = string.find(str, "%G", pos)
         if nextPos then
-            table.insert(retTable, string.sub(str, pos, nextPos - 1))
-            table.insert(retTable, stringQuoteTable[string.byte(str, nextPos)])
+            table.insert(ret, string.sub(str, pos, nextPos - 1))
+            table.insert(ret, stringQuoteTable[string.byte(str, nextPos)])
             pos = nextPos + 1
-            if pos > #str then
-                break
-            end
+            if pos > #str then break end
         else
-            table.insert(retTable, string.sub(str, pos))
+            table.insert(ret, string.sub(str, pos))
             break
         end
     until false
-    if quote ~= nil then table.insert(retTable, quote) end
-    return table.concat(retTable)
+    if quote ~= nil then table.insert(ret, quote) end
+    return table.concat(ret)
 end
 
 ---@param x any
 ---@return string
-local function addressFormatter(x) return "<" .. tostring(x) .. ">" end
+local function addressFormatter(x)
+    local mt = getmetatable(x)
+    if mt ~= nil and type(mt.__name) == "string" then
+        return string.format("<%s (%s): %p>", type(x), mt.__name, x)
+    else
+        return string.format("<%s: %p>", type(x), x)
+    end
+end
+
+---@param x any
+---@return string
+local function circleAddressFormatter(x)
+    local mt = getmetatable(x)
+    if mt ~= nil and type(mt.__name) == "string" then
+        return string.format("<circle %s (%s): %p>", type(x), mt.__name, x)
+    else
+        return string.format("<circle %s: %p>", type(x), x)
+    end
+end
 
 ---@class _InnerPrettyOption
 ---@field nil fun(x:nil):string
@@ -148,8 +145,6 @@ local function addressFormatter(x) return "<" .. tostring(x) .. ">" end
 ---@field indentString string
 ---@field lineBreakLimit integer
 ---@field maximumNilNumberAllowed number
----@field numberFormatter nil|fun(x:number):nil
----@field integerFormatter nil|fun(x:integer):nil
 
 local backupGlobalPrettyOption = {
     ["nil"] = function() return "nil" end,
@@ -160,12 +155,10 @@ local backupGlobalPrettyOption = {
     ["userdata"] = addressFormatter,
     ["thread"] = addressFormatter,
     ["table"] = addressFormatter,
-    cycleTableFormatter = function(x) return "<cycle " .. tostring(x) .. ">" end,
+    cycleTableFormatter = circleAddressFormatter,
     indentString = "  ",
     lineBreakLimit = 64,
-    maximumNilNumberAllowed = 0,
-    numberFormatter = nil,
-    integerFormatter = nil,
+    maximumNilNumberAllowed = 0
 }
 
 ---@type _InnerPrettyOption
@@ -177,24 +170,24 @@ local globalPrettyOption = copyTable(backupGlobalPrettyOption)
 local function writeDirect(value, option) return option[type(value)](value) end
 
 ---@param tab any[]
----@param maximumNilNumberAllowed integer
+---@param nilLimit integer
 ---@return integer
-local function getArraySize(tab, maximumNilNumberAllowed)
-    local integerLimit = 1
-    local nilNumber = 0
-    while integerLimit < maxSafeInteger do
-        if tab[integerLimit] == nil then
-            if nilNumber >= maximumNilNumberAllowed then
-                integerLimit = integerLimit - nilNumber
+local function getArraySize(tab, nilLimit)
+    local ilen = 1
+    local nilCnt = 0
+    while ilen < maxSafeInteger do
+        if tab[ilen] == nil then
+            if nilCnt >= nilLimit then
+                ilen = ilen - nilCnt
                 break
             end
-            nilNumber = nilNumber + 1
+            nilCnt = nilCnt + 1
         else
-            nilNumber = 0
+            nilCnt = 0
         end
-        integerLimit = integerLimit + 1
+        ilen = ilen + 1
     end
-    return integerLimit - 1
+    return ilen - 1
 end
 
 local typeOrder = {
@@ -204,7 +197,7 @@ local typeOrder = {
     ["table"] = 3,
     ["function"] = 4,
     ["userdata"] = 5,
-    ["thread"] = 6,
+    ["thread"] = 6
 }
 
 ---@param item string[]
@@ -235,7 +228,6 @@ local function writeInternal(value, option)
     local maximumNilNumberAllowed = option.maximumNilNumberAllowed
 
     local tableVisit = {} ---@type table<table, boolean>
-    local integerSet = {} ---@type table<integer, boolean>
 
     ---@param leadingSpace string
     ---@return string|string[]
@@ -244,22 +236,20 @@ local function writeInternal(value, option)
         if typ ~= "table" then return writeDirect(tab, option) end
         if tableVisit[tab] then return option.cycleTableFormatter(tab) end
         tableVisit[tab] = true
-        if #leadingSpace >= lineBreakLimit then
-            error("leading space is too long")
-        end
+        if #leadingSpace >= lineBreakLimit then error("leading space is too long") end
 
         local integerSize = getArraySize(tab, maximumNilNumberAllowed)
         local newLeadingSpace = leadingSpace .. indentString
 
         local ret = {} ---@type string[]
-        local line = { leadingSpace } ---@type string[]
+        local line = {leadingSpace} ---@type string[]
         local line_size = #leadingSpace ---@type integer
 
-        local function resetLine() line, line_size = { leadingSpace }, #leadingSpace end
+        local function resetLine() line, line_size = {leadingSpace}, #leadingSpace end
         local function nextLine()
             line[#line] = ","
             table.insert(ret, table.concat(line))
-            line, line_size = { leadingSpace }, #leadingSpace
+            line, line_size = {leadingSpace}, #leadingSpace
         end
 
         ---@param str string
@@ -294,6 +284,7 @@ local function writeInternal(value, option)
             pushString("}")
         end
 
+        local integerSet = {} ---@type table<integer, boolean>
         for i = 1, integerSize do
             integerSet[i] = true
             push(subWrite(tab[i], newLeadingSpace), "")
@@ -301,11 +292,7 @@ local function writeInternal(value, option)
 
         ---@type any[]
         local keyArray = {}
-        for key, _ in pairs(tab) do
-            if not integerSet[key] then
-                table.insert(keyArray, key)
-            end
-        end
+        for key, _ in pairs(tab) do if not integerSet[key] then table.insert(keyArray, key) end end
         table.sort(keyArray, function(lhs, rhs)
             local lhsType, rhsType = type(lhs), type(rhs)
             if lhsType == rhsType then
@@ -373,17 +360,12 @@ local function wrapFunction(func) return function(x) return tostring(func(x)) en
 ---@param option _InnerPrettyOption
 ---@return nil
 local function checkOption(option)
-    if not (type(option.lineBreakLimit) == 'number'
-            and option.lineBreakLimit >= 4
-            and option.lineBreakLimit <= maxSafeInteger / 2
-            and option.lineBreakLimit / 2 >= #option.indentString) then
+    if not (type(option.lineBreakLimit) == 'number' and option.lineBreakLimit >= 4 and option.lineBreakLimit <=
+        maxSafeInteger / 2 and option.lineBreakLimit / 2 >= #option.indentString) then
         error("\"lineBreakLimit\" is illegal")
     end
-    if not (type(option.maximumNilNumberAllowed) == 'number'
-            and option.maximumNilNumberAllowed >= 0
-            and option.maximumNilNumberAllowed <= maxSafeInteger) then
-        error("\"maximumNilNumberAllowed\" is illegal")
-    end
+    if not (type(option.maximumNilNumberAllowed) == 'number' and option.maximumNilNumberAllowed >= 0 and
+        option.maximumNilNumberAllowed <= maxSafeInteger) then error("\"maximumNilNumberAllowed\" is illegal") end
 end
 
 ---@param indentWidth any
@@ -398,14 +380,10 @@ end
 ---@param integerFormatter fun(value:integer):string
 ---@return fun(value:number):string
 local function makeNumberFormatter(numberFormatter, integerFormatter)
-    if numberFormatter == nil and integerFormatter == nil then
-        return num2string
-    end
+    if numberFormatter == nil and integerFormatter == nil then return num2string end
     numberFormatter = (numberFormatter ~= nil and wrapFunction(numberFormatter)) or num2string
     integerFormatter = (integerFormatter ~= nil and wrapFunction(integerFormatter)) or num2string
-    return function(value)
-        return (checkUsingIntegerFormatter(value) and integerFormatter(value)) or numberFormatter(value)
-    end
+    return function(value) return (isInteger(value) and integerFormatter(value)) or numberFormatter(value) end
 end
 
 ---@param option PrettyOption|nil
@@ -415,24 +393,12 @@ local function mergeOption(option)
     if type(option) ~= 'table' then error("`option` is not a table") end
     local retOption = copyTable(globalPrettyOption)
     retOption["number"] = makeNumberFormatter(option.numberFormatter, option.integerFormatter)
-    if option.stringFormatter ~= nil then
-        retOption["string"] = wrapFunction(option.stringFormatter)
-    end
-    if option.booleanFormatter ~= nil then
-        retOption["boolean"] = wrapFunction(option.booleanFormatter)
-    end
-    if option.functionFormatter ~= nil then
-        retOption["function"] = wrapFunction(option.functionFormatter)
-    end
-    if option.userdataFormatter ~= nil then
-        retOption["userdata"] = wrapFunction(option.userdataFormatter)
-    end
-    if option.threadFormatter ~= nil then
-        retOption["thread"] = wrapFunction(option.threadFormatter)
-    end
-    if option.indentWidth ~= nil then
-        retOption.indentString = makeIndentString(option.indentWidth)
-    end
+    if option.stringFormatter ~= nil then retOption["string"] = wrapFunction(option.stringFormatter) end
+    if option.booleanFormatter ~= nil then retOption["boolean"] = wrapFunction(option.booleanFormatter) end
+    if option.functionFormatter ~= nil then retOption["function"] = wrapFunction(option.functionFormatter) end
+    if option.userdataFormatter ~= nil then retOption["userdata"] = wrapFunction(option.userdataFormatter) end
+    if option.threadFormatter ~= nil then retOption["thread"] = wrapFunction(option.threadFormatter) end
+    if option.indentWidth ~= nil then retOption.indentString = makeIndentString(option.indentWidth) end
     if option.lineBreakLimit ~= nil then
         retOption.lineBreakLimit = tonumber(option.lineBreakLimit) or error("not an integer")
     end
@@ -467,24 +433,36 @@ end
 ---  it cannot absolutely control the maximum length of each line.
 ---@param limit integer
 ---@return nil
-local function setLineBreakLimit(limit) updateOption({ lineBreakLimit = limit }) end
+local function setLineBreakLimit(limit)
+    updateOption({
+        lineBreakLimit = limit
+    })
+end
 
 ---Set the indentation width.
 ---@param width integer
 ---@return nil
-local function setIndentWidth(width) updateOption({ indentWidth = width }) end
+local function setIndentWidth(width)
+    updateOption({
+        indentWidth = width
+    })
+end
 
 ---Set the maximum number of consecutive nil values allowed in an array;
 ---values exceeding this limit will be considered as part of the table.
 ---@param num integer
-local function setMaximumNilNumberAllowed(num) updateOption({ maximumNilNumberAllowed = num }) end
+local function setMaximumNilNumberAllowed(num)
+    updateOption({
+        maximumNilNumberAllowed = num
+    })
+end
 
 ---@param option PrettyOption|nil
 ---@return fun(...):nil
 local function makePrinter(option)
     local mergedOption = mergeOption(option)
     return function(...)
-        local data, dataLen = { ... }, select("#", ...)
+        local data, dataLen = {...}, select("#", ...)
         if dataLen >= 1 then
             printOne(data[1], mergedOption)
             for i = 2, dataLen do
@@ -500,7 +478,7 @@ end
 ---@param ... any
 ---@return nil
 local function prettyPrint(...)
-    local data, dataLen = { ... }, select("#", ...)
+    local data, dataLen = {...}, select("#", ...)
     if dataLen >= 1 then
         printOne(data[1], globalPrettyOption)
         for i = 2, dataLen do
@@ -519,7 +497,7 @@ local M = {
     updateOption = updateOption,
     resetOption = resetOption,
     print = prettyPrint,
-    makePrinter = makePrinter,
+    makePrinter = makePrinter
 }
 return setmetatable(M, {
     __call = function(_, ...) return prettyPrint(...) end
